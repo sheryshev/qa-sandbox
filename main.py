@@ -16,13 +16,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Хранилище UI конфигурации
-ui_config = {
+DEFAULT_UI_CONFIG = {
     "buttons": [{"id": "btn1", "label": "Кнопка 1", "visible": True}],
     "panels": [{"id": "panel1", "title": "Панель 1", "visible": True}],
     "comboboxes": [{"id": "combo1", "options": ["Опция 1", "Опция 2"], "visible": True}],
     "dropdowns": [{"id": "dd1", "options": ["Выпад 1", "Выпад 2"], "visible": True}],
 }
+
+# Хранилище UI конфигурации
+ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
 
 test_logs: List[str] = []
 action_logs: List[str] = []
@@ -131,14 +133,9 @@ async def delete_ui_element(element_type: str, element_id: str):
 @app.put("/api/ui-config/reset")
 async def reset_ui_config():
     global ui_config
-    ui_config = {
-        "buttons": [],
-        "panels": [],
-        "comboboxes": [],
-        "dropdowns": [],
-    }
-    action_logs.append("Конфигурация UI обнулена")
-    return {"detail": "Конфигурация UI обнулена", "ui_config": ui_config}
+    ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
+    action_logs.append("Конфигурация UI обнулена до дефолтной")
+    return {"detail": "Конфигурация UI обнулена до дефолтной", "ui_config": ui_config}
 
 @app.put("/api/ui-config/{element_type}/{element_id}")
 async def update_ui_element(element_type: str, element_id: str, element: dict):
@@ -175,17 +172,12 @@ async def run_ui_tests():
 async def run_reset_test():
     test_logs.append("Тест обнуления конфигурации UI...")
     global ui_config
-    ui_config = {
-        "buttons": [],
-        "panels": [],
-        "comboboxes": [],
-        "dropdowns": [],
-    }
+    ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
     action_logs.append("Конфигурация UI обнулена (тест)")
     total = sum(len(ui_config[key]) for key in ui_config)
-    if total != 0:
-        test_logs.append("Ошибка: конфигурация не пуста после обнуления")
-        raise Exception("Конфигурация не пуста после обнуления")
+    if total == 0:
+        test_logs.append("Ошибка: конфигурация пуста после обнуления")
+        raise Exception("Конфигурация пуста после обнуления")
     test_logs.append("Тест обнуления конфигурации пройден.")
 
 async def run_update_test():
@@ -284,6 +276,47 @@ async def rest_call(req: RestRequest):
             }
         except Exception as e:
             return {"error": str(e)}
+
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page():
+    return """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Логи автотестов и действий</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+<style>
+  body { padding: 20px; }
+  pre { background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; height: 300px; overflow-y: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1 class="mb-4">Логи автотестов и действий</h1>
+  <h2>Логи действий (REST вызовы и др.)</h2>
+  <pre id="actionLogs">Загрузка...</pre>
+  <h2>Логи автотестов</h2>
+  <pre id="testLogs">Загрузка...</pre>
+  <a href="/" class="btn btn-primary mt-3">Вернуться на главную</a>
+</div>
+<script>
+async function updateLogs() {
+  const res1 = await fetch('/api/action-logs');
+  const data1 = await res1.json();
+  document.getElementById('actionLogs').textContent = data1.logs.join('\\n');
+
+  const res2 = await fetch('/api/test-logs');
+  const data2 = await res2.json();
+  document.getElementById('testLogs').textContent = data2.logs.join('\\n');
+}
+setInterval(updateLogs, 2000);
+updateLogs();
+</script>
+</body>
+</html>
+"""
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
