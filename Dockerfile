@@ -1,8 +1,10 @@
-# Используем официальный образ Python
 FROM python:3.11-slim
 
-# Устанавливаем системные зависимости для Playwright (браузеры требуют библиотек)
-RUN apt-get update && apt-get install -y \
+# Обновляем списки пакетов и устанавливаем необходимые зависимости для Playwright и Chromium
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gnupg \
+    ca-certificates \
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -15,30 +17,29 @@ RUN apt-get update && apt-get install -y \
     libxdamage1 \
     libxext6 \
     libxfixes3 \
-    librandr2 \
+    libxrandr2 \
     libgbm1 \
     libpango-1.0-0 \
     libcairo2 \
     libasound2 \
+    libx11-xcb1 \
+    libxss1 \
+    libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Рабочая директория
 WORKDIR /app
 
-# Копируем зависимости
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем браузер Chromium внутри контейнера
+# Устанавливаем Playwright и браузер Chromium
+RUN pip install playwright
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
-# Копируем код проекта
 COPY . .
 
-# Открываем порты для Streamlit и FastAPI
 EXPOSE 8501
 EXPOSE 8000
 
-# Запуск приложения
 CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
