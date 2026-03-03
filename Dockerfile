@@ -48,4 +48,4 @@ EXPOSE 8501
 EXPOSE 8000
 
 # Запускаем Streamlit, используя порт из переменной окружения PORT (важно для Railway)
-CMD ["sh", "-c", "streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT:-8501}"]
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
