@@ -107,6 +107,28 @@ async def patch_ui_config(config: UIConfig):
     action_logs.append("PATCH /api/ui-config - частично обновлена конфигурация UI")
     return ui_config
 
+# Новый метод PUT для изменения конкретного элемента по типу и id
+@app.put("/api/ui-config/{element_type}/{element_id}")
+async def update_ui_element(element_type: str, element_id: str, element: dict):
+    if element_type not in ui_config:
+        raise HTTPException(status_code=404, detail="Element type not found")
+    for i, el in enumerate(ui_config[element_type]):
+        if el["id"] == element_id:
+            # Обновляем поля элемента, id менять нельзя
+            updated = el.copy()
+            for k, v in element.items():
+                if k != "id":
+                    updated[k] = v
+            ui_config[element_type][i] = updated
+            action_logs.append(f"PUT /api/ui-config/{element_type}/{element_id} - элемент обновлён")
+            # Проверяем после обновления
+            try:
+                await run_ui_tests()
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Ошибка после обновления элемента: {str(e)}")
+            return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
+    raise HTTPException(status_code=404, detail="Element not found")
+
 # REST API: добавить новый элемент (POST)
 @app.post("/api/ui-config/{element_type}")
 async def add_ui_element(element_type: str, element: dict):
@@ -268,7 +290,7 @@ async def rest_call(req: RestRequest):
         except Exception as e:
             return {"error": str(e)}
 
-# Веб-интерфейс основной страницы
+# Веб-интерфейс основной страницы с Bootstrap 5
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -276,50 +298,67 @@ async def index():
 <html lang="ru">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Демонстрация автотестирования</title>
+<!-- Bootstrap CSS -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  #log { width: 100%; height: 200px; border: 1px solid #ccc; overflow-y: scroll; background: #f9f9f9; padding: 10px; white-space: pre-wrap; }
-  .panel { border: 1px solid #aaa; padding: 10px; margin-bottom: 10px; }
-  button { margin: 5px; }
-  label { display: block; margin-top: 10px; }
-  input, select, textarea { width: 300px; }
+  body { padding: 20px; }
+  #log { height: 200px; white-space: pre-wrap; overflow-y: auto; background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; }
+  .element-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #dee2e6; }
+  .element-list { max-height: 300px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 0.375rem; }
 </style>
 </head>
 <body>
-<h1>Демонстрация автотестирования</h1>
 
-<div>
-  <button onclick="loadConfig()">Загрузить конфигурацию UI (GET)</button>
-  <button onclick="runTests()">Запустить автотесты</button>
-  <select id="testType">
-    <option value="all">Все тесты</option>
-    <option value="ui">UI тесты</option>
-    <option value="api">API тесты</option>
-  </select>
+<div class="container">
+  <h1 class="mb-4">Демонстрация автотестирования</h1>
+
+  <div class="mb-3 d-flex gap-2 align-items-center">
+    <button class="btn btn-primary" onclick="loadConfig()">Загрузить конфигурацию UI (GET)</button>
+    <button class="btn btn-success" onclick="runTests()">Запустить автотесты</button>
+    <select id="testType" class="form-select w-auto">
+      <option value="all">Все тесты</option>
+      <option value="ui">UI тесты</option>
+      <option value="api">API тесты</option>
+    </select>
+  </div>
+
+  <h2>Добавить новый элемент</h2>
+  <form id="addForm" onsubmit="return addElement();" class="mb-4">
+    <div class="row g-3 align-items-center">
+      <div class="col-auto">
+        <label for="elementType" class="col-form-label">Тип элемента:</label>
+      </div>
+      <div class="col-auto">
+        <select id="elementType" class="form-select" required onchange="onTypeChange()">
+          <option value="">--Выберите--</option>
+          <option value="buttons">Кнопка</option>
+          <option value="panels">Панель</option>
+          <option value="comboboxes">Combobox</option>
+          <option value="dropdowns">Dropdown</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label for="elementId" class="col-form-label">ID:</label>
+      </div>
+      <div class="col-auto">
+        <input type="text" id="elementId" class="form-control" required />
+      </div>
+    </div>
+    <div id="fieldsContainer" class="mt-3"></div>
+    <button type="submit" class="btn btn-primary mt-3">Добавить элемент</button>
+  </form>
+
+  <h2>UI элементы</h2>
+  <div id="ui-elements" class="element-list mb-4"></div>
+
+  <h2>Лог автотестов</h2>
+  <div id="log"></div>
 </div>
 
-<h2>Добавить новый элемент</h2>
-<form id="addForm" onsubmit="return addElement();">
-  <label>Тип элемента:
-    <select id="elementType" required onchange="onTypeChange()">
-      <option value="">--Выберите--</option>
-      <option value="buttons">Кнопка</option>
-      <option value="panels">Панель</option>
-      <option value="comboboxes">Combobox</option>
-      <option value="dropdowns">Dropdown</option>
-    </select>
-  </label>
-  <label>ID: <input type="text" id="elementId" required></label>
-  <div id="fieldsContainer"></div>
-  <button type="submit">Добавить элемент</button>
-</form>
-
-<h2>UI элементы</h2>
-<div id="ui-elements"></div>
-
-<h2>Лог автотестов</h2>
-<div id="log"></div>
+<!-- Bootstrap JS Bundle (Popper + Bootstrap JS) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
 function onTypeChange() {
@@ -328,18 +367,36 @@ function onTypeChange() {
   container.innerHTML = '';
   if(type === 'buttons') {
     container.innerHTML = `
-      <label>Label: <input type="text" id="elementLabel" required></label>
-      <label>Visible: <input type="checkbox" id="elementVisible" checked></label>
+      <div class="mb-3">
+        <label for="elementLabel" class="form-label">Label:</label>
+        <input type="text" id="elementLabel" class="form-control" required />
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="elementVisible" checked />
+        <label class="form-check-label" for="elementVisible">Visible</label>
+      </div>
     `;
   } else if(type === 'panels') {
     container.innerHTML = `
-      <label>Title: <input type="text" id="elementTitle" required></label>
-      <label>Visible: <input type="checkbox" id="elementVisible" checked></label>
+      <div class="mb-3">
+        <label for="elementTitle" class="form-label">Title:</label>
+        <input type="text" id="elementTitle" class="form-control" required />
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="elementVisible" checked />
+        <label class="form-check-label" for="elementVisible">Visible</label>
+      </div>
     `;
   } else if(type === 'comboboxes' || type === 'dropdowns') {
     container.innerHTML = `
-      <label>Options (через запятую): <input type="text" id="elementOptions" required></label>
-      <label>Visible: <input type="checkbox" id="elementVisible" checked></label>
+      <div class="mb-3">
+        <label for="elementOptions" class="form-label">Options (через запятую):</label>
+        <input type="text" id="elementOptions" class="form-control" required />
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="elementVisible" checked />
+        <label class="form-check-label" for="elementVisible">Visible</label>
+      </div>
     `;
   }
 }
@@ -414,202 +471,24 @@ async function loadConfig() {
   function createDeleteBtn(type, id) {
     const btn = document.createElement('button');
     btn.textContent = 'Удалить';
+    btn.className = 'btn btn-sm btn-outline-danger me-2';
     btn.onclick = () => deleteElement(type, id);
-    btn.style.marginLeft = '10px';
     return btn;
   }
 
-  // Кнопки
-  if(config.buttons) {
+  function createEditBtn(type, id) {
+    const btn = document.createElement('button');
+    btn.textContent = 'Изменить';
+    btn.className = 'btn btn-sm btn-outline-primary';
+    btn.onclick = () => openEditModal(type, id);
+    return btn;
+  }
+
+  function createSection(title, items, type, renderItem) {
+    if (!items || items.length === 0) return;
     const h3 = document.createElement('h3');
-    h3.textContent = 'Кнопки';
+    h3.textContent = title;
     container.appendChild(h3);
-    config.buttons.forEach(btn => {
-      const div = document.createElement('div');
-      div.textContent = `${btn.id} — ${btn.label} — Видим: ${btn.visible}`;
-      div.appendChild(createDeleteBtn('buttons', btn.id));
-      container.appendChild(div);
-    });
-  }
-
-  // Панели
-  if(config.panels) {
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Панели';
-    container.appendChild(h3);
-    config.panels.forEach(panel => {
-      const div = document.createElement('div');
-      div.textContent = `${panel.id} — ${panel.title} — Видим: ${panel.visible}`;
-      div.appendChild(createDeleteBtn('panels', panel.id));
-      container.appendChild(div);
-    });
-  }
-
-  // Comboboxes
-  if(config.comboboxes) {
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Comboboxes';
-    container.appendChild(h3);
-    config.comboboxes.forEach(combo => {
-      const div = document.createElement('div');
-      div.textContent = `${combo.id} — Опции: ${combo.options.join(', ')} — Видим: ${combo.visible}`;
-      div.appendChild(createDeleteBtn('comboboxes', combo.id));
-      container.appendChild(div);
-    });
-  }
-
-  // Dropdowns
-  if(config.dropdowns) {
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Dropdowns';
-    container.appendChild(h3);
-    config.dropdowns.forEach(dd => {
-      const div = document.createElement('div');
-      div.textContent = `${dd.id} — Опции: ${dd.options.join(', ')} — Видим: ${dd.visible}`;
-      div.appendChild(createDeleteBtn('dropdowns', dd.id));
-      container.appendChild(div);
-    });
-  }
-}
-
-async function runTests() {
-  const testType = document.getElementById('testType').value;
-  document.getElementById('log').textContent = "Запуск тестов...";
-  await fetch(`/api/run-tests?test_type=${testType}`, { method: 'POST' });
-
-  const logDiv = document.getElementById('log');
-  const interval = setInterval(async () => {
-    const res = await fetch('/api/test-logs');
-    const data = await res.json();
-    logDiv.textContent = data.logs.join('\\n');
-    logDiv.scrollTop = logDiv.scrollHeight;
-
-    if(data.logs.length > 0 && (data.logs[data.logs.length - 1].includes("завершены") || data.logs[data.logs.length - 1].includes("завершен"))) {
-      clearInterval(interval);
-    }
-  }, 1000);
-}
-
-window.onload = loadConfig;
-</script>
-
-</body>
-</html>
-"""
-
-# Веб-интерфейс страницы логов и REST клиента
-@app.get("/logs", response_class=HTMLResponse)
-async def logs_page():
-    return """
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8" />
-<title>Логи и REST клиент</title>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  textarea, pre { width: 100%; height: 200px; white-space: pre-wrap; background: #f9f9f9; border: 1px solid #ccc; padding: 10px; overflow-y: scroll; }
-  label { display: block; margin-top: 10px; }
-  input, select { width: 300px; }
-  button { margin-top: 10px; }
-</style>
-</head>
-<body>
-<h1>Логи действий и автотестов</h1>
-
-<h2>Логи REST действий</h2>
-<pre id="actionLogs"></pre>
-
-<h2>Логи автотестов</h2>
-<pre id="testLogs"></pre>
-
-<h2>Запуск Pytest автотестов</h2>
-<button onclick="runPytest()">Запустить Pytest</button>
-<pre id="pytestOutput">Отчёт пуст</pre>
-
-<h2>REST клиент</h2>
-<form id="restForm" onsubmit="return sendRestCall();">
-  <label>Метод:
-    <select id="method" required>
-      <option>GET</option>
-      <option>POST</option>
-      <option>PUT</option>
-      <option>DELETE</option>
-      <option>PATCH</option>
-    </select>
-  </label>
-  <label>URL:
-    <input type="text" id="url" value="http://localhost:8000/api/ui-config" required />
-  </label>
-  <label>Заголовки (JSON):
-    <textarea id="headers" placeholder='{"Content-Type": "application/json"}'></textarea>
-  </label>
-  <label>Тело запроса (JSON):
-    <textarea id="body"></textarea>
-  </label>
-  <button type="submit">Отправить</button>
-</form>
-
-<h3>Ответ</h3>
-<pre id="response"></pre>
-
-<script>
-async function updateLogs() {
-  const res1 = await fetch('/api/action-logs');
-  const data1 = await res1.json();
-  document.getElementById('actionLogs').textContent = data1.logs.join('\\n');
-
-  const res2 = await fetch('/api/test-logs');
-  const data2 = await res2.json();
-  document.getElementById('testLogs').textContent = data2.logs.join('\\n');
-}
-
-setInterval(updateLogs, 2000);
-updateLogs();
-
-async function runPytest() {
-  document.getElementById('pytestOutput').textContent = "Запуск...";
-  const res = await fetch('/api/run-pytest', { method: 'POST' });
-  const data = await res.json();
-  if(res.ok) {
-    const reportRes = await fetch('/api/pytest-report');
-    const reportText = await reportRes.text();
-    document.getElementById('pytestOutput').textContent = reportText;
-  } else {
-    document.getElementById('pytestOutput').textContent = "Ошибка запуска pytest";
-  }
-}
-
-async function sendRestCall() {
-  const method = document.getElementById('method').value;
-  const url = document.getElementById('url').value;
-  let headers = {};
-  let body = null;
-  try {
-    const headersText = document.getElementById('headers').value.trim();
-    if(headersText) headers = JSON.parse(headersText);
-  } catch(e) {
-    alert('Ошибка в JSON заголовков');
-    return false;
-  }
-  try {
-    const bodyText = document.getElementById('body').value.trim();
-    if(bodyText) body = JSON.parse(bodyText);
-  } catch(e) {
-    alert('Ошибка в JSON тела запроса');
-    return false;
-  }
-  const res = await fetch('/api/rest-call', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({method, url, headers, body})
-  });
-  const data = await res.json();
-  document.getElementById('response').textContent = JSON.stringify(data, null, 2);
-  return false;
-}
-</script>
-
-</body>
-</html>
-"""
+    const listDiv = document.createElement('div');
+    listDiv.className = 'element-list mb-3';
+    items
