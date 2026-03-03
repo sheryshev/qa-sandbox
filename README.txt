@@ -17,6 +17,8 @@
 - `test_autotests.py` — пример автотестов с использованием pytest и httpx.
 
 ---
+## Онлайн сервис
+https://qa-sandbox-production.up.railway.app/
 
 ## Установка и запуск
 
