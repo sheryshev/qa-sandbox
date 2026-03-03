@@ -28,7 +28,6 @@ test_logs: List[str] = []
 action_logs: List[str] = []
 pytest_report = ""
 
-# Модели для UI элементов
 class Button(BaseModel):
     id: str
     label: str
@@ -55,7 +54,6 @@ class UIConfig(BaseModel):
     comboboxes: Optional[List[ComboBox]] = None
     dropdowns: Optional[List[Dropdown]] = None
 
-# Middleware для логирования всех REST вызовов
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     method = request.method
@@ -64,12 +62,10 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     return response
 
-# REST API: получить конфигурацию UI
 @app.get("/api/ui-config", response_model=UIConfig)
 async def get_ui_config():
     return ui_config
 
-# REST API: полное обновление UI конфигурации (PUT)
 @app.put("/api/ui-config", response_model=UIConfig)
 async def put_ui_config(config: UIConfig):
     global ui_config
@@ -84,7 +80,6 @@ async def put_ui_config(config: UIConfig):
     action_logs.append("PUT /api/ui-config - обновлена конфигурация UI")
     return ui_config
 
-# REST API: частичное обновление UI конфигурации (PATCH)
 @app.patch("/api/ui-config", response_model=UIConfig)
 async def patch_ui_config(config: UIConfig):
     global ui_config
@@ -107,7 +102,6 @@ async def patch_ui_config(config: UIConfig):
     action_logs.append("PATCH /api/ui-config - частично обновлена конфигурация UI")
     return ui_config
 
-# REST API: добавить новый элемент (POST)
 @app.post("/api/ui-config/{element_type}")
 async def add_ui_element(element_type: str, element: dict):
     if element_type not in ui_config:
@@ -122,7 +116,6 @@ async def add_ui_element(element_type: str, element: dict):
         raise HTTPException(status_code=400, detail=f"Ошибка после добавления элемента: {str(e)}")
     return {"detail": f"{element_type[:-1].capitalize()} добавлен", "element": element}
 
-# REST API: удалить элемент (DELETE)
 @app.delete("/api/ui-config/{element_type}/{element_id}")
 async def delete_ui_element(element_type: str, element_id: str):
     if element_type not in ui_config:
@@ -135,7 +128,6 @@ async def delete_ui_element(element_type: str, element_id: str):
     action_logs.append(f"Удалён элемент {element_type[:-1]} с id={element_id}")
     return {"detail": f"{element_type[:-1].capitalize()} удалён"}
 
-# REST API: обнулить конфигурацию UI (PUT)
 @app.put("/api/ui-config/reset")
 async def reset_ui_config():
     global ui_config
@@ -148,7 +140,6 @@ async def reset_ui_config():
     action_logs.append("Конфигурация UI обнулена")
     return {"detail": "Конфигурация UI обнулена", "ui_config": ui_config}
 
-# REST API: изменить элемент (PUT)
 @app.put("/api/ui-config/{element_type}/{element_id}")
 async def update_ui_element(element_type: str, element_id: str, element: dict):
     if element_type not in ui_config:
@@ -166,10 +157,8 @@ async def update_ui_element(element_type: str, element_id: str, element: dict):
             return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
     raise HTTPException(status_code=404, detail="Element not found")
 
-# Асинхронные автотесты UI с проверкой наличия и видимости всех элементов
 async def run_ui_tests():
     test_logs.append("Запуск UI тестов...")
-
     for etype in ["buttons", "panels", "comboboxes", "dropdowns"]:
         elements = ui_config.get(etype, [])
         if not elements:
@@ -181,10 +170,8 @@ async def run_ui_tests():
                 raise Exception(f"Элемент {etype[:-1]} {el['id']} не видим")
             else:
                 test_logs.append(f"UI тест {etype[:-1]} {el['id']}: видим - OK")
-
     test_logs.append("UI тесты завершены.")
 
-# Тест обнуления конфигурации
 async def run_reset_test():
     test_logs.append("Тест обнуления конфигурации UI...")
     global ui_config
@@ -201,7 +188,6 @@ async def run_reset_test():
         raise Exception("Конфигурация не пуста после обнуления")
     test_logs.append("Тест обнуления конфигурации пройден.")
 
-# Тест изменения элемента
 async def run_update_test():
     test_logs.append("Тест изменения элемента...")
     btn = {"id": "btn_update", "label": "Старая кнопка", "visible": True}
@@ -219,7 +205,6 @@ async def run_update_test():
         raise Exception("Элемент не изменён корректно")
     test_logs.append("Тест изменения элемента пройден.")
 
-# Асинхронные автотесты API (пример)
 async def run_api_tests():
     test_logs.append("Запуск API тестов...")
     test_logs.append("Тест API GET /api/ui-config: ожидается 200")
@@ -231,7 +216,6 @@ async def run_api_tests():
     ui_config["buttons"] = [b for b in ui_config["buttons"] if b["id"] != "btn_test"]
     test_logs.append("API тесты завершены.")
 
-# Запуск автотестов с выбором типа
 @app.post("/api/run-tests")
 async def run_tests(test_type: Optional[str] = "all"):
     action_logs.append(f"Запуск автотестов типа '{test_type}'")
@@ -254,17 +238,14 @@ async def run_tests(test_type: Optional[str] = "all"):
         asyncio.create_task(run_all())
     return {"detail": f"Тесты '{test_type}' запущены"}
 
-# Получение логов автотестов
 @app.get("/api/test-logs")
 async def get_test_logs():
     return {"logs": test_logs}
 
-# Получение логов действий (REST вызовы, автотесты)
 @app.get("/api/action-logs")
 async def get_action_logs():
     return {"logs": action_logs}
 
-# Запуск pytest и сохранение отчёта
 @app.post("/api/run-pytest")
 async def run_pytest():
     global pytest_report
@@ -277,19 +258,16 @@ async def run_pytest():
     pytest_report = proc.stdout + "\n" + proc.stderr
     return {"detail": "Pytest запущен", "output": pytest_report}
 
-# Получение pytest отчёта
 @app.get("/api/pytest-report")
 async def get_pytest_report():
     return PlainTextResponse(pytest_report or "Отчёт пуст")
 
-# REST клиент: модель запроса
 class RestRequest(BaseModel):
     method: str
     url: str
     headers: Optional[dict] = None
     body: Optional[dict] = None
 
-# REST клиент: вызов произвольного REST API
 @app.post("/api/rest-call")
 async def rest_call(req: RestRequest):
     async with httpx.AsyncClient() as client:
@@ -307,7 +285,6 @@ async def rest_call(req: RestRequest):
         except Exception as e:
             return {"error": str(e)}
 
-# Веб-интерфейс основной страницы с Bootstrap и новыми формами
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -330,7 +307,7 @@ async def index():
 <div class="container">
   <h1 class="mb-4">Демонстрация автотестирования</h1>
 
-  <div class="mb-3 d-flex gap-2 align-items-center">
+  <div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
     <button id="resetConfigBtn" class="btn btn-warning">Обнулить конфигурацию UI (PUT)</button>
     <button id="runTestsBtn" class="btn btn-success">Запустить автотесты</button>
     <select id="testType" class="form-select w-auto">
@@ -338,6 +315,7 @@ async def index():
       <option value="ui">UI тесты</option>
       <option value="api">API тесты</option>
     </select>
+    <a href="/logs" class="btn btn-info ms-auto">Перейти к логам</a>
   </div>
 
   <h2>Добавить новый элемент</h2>
