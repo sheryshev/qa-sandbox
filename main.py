@@ -116,7 +116,6 @@ async def add_ui_element(element_type: str, element: dict):
         raise HTTPException(status_code=400, detail="Element with this id already exists")
     ui_config[element_type].append(element)
     action_logs.append(f"Добавлен элемент {element_type[:-1]} с id={element.get('id')}")
-    # Запускаем проверку всех элементов после добавления
     try:
         await run_ui_tests()
     except Exception as e:
@@ -136,57 +135,91 @@ async def delete_ui_element(element_type: str, element_id: str):
     action_logs.append(f"Удалён элемент {element_type[:-1]} с id={element_id}")
     return {"detail": f"{element_type[:-1].capitalize()} удалён"}
 
+# REST API: обнулить конфигурацию UI (PUT)
+@app.put("/api/ui-config/reset")
+async def reset_ui_config():
+    global ui_config
+    ui_config = {
+        "buttons": [],
+        "panels": [],
+        "comboboxes": [],
+        "dropdowns": [],
+    }
+    action_logs.append("Конфигурация UI обнулена")
+    return {"detail": "Конфигурация UI обнулена", "ui_config": ui_config}
+
+# REST API: изменить элемент (PUT)
+@app.put("/api/ui-config/{element_type}/{element_id}")
+async def update_ui_element(element_type: str, element_id: str, element: dict):
+    if element_type not in ui_config:
+        raise HTTPException(status_code=404, detail="Element type not found")
+    for i, el in enumerate(ui_config[element_type]):
+        if el["id"] == element_id:
+            updated = element.copy()
+            updated["id"] = element_id
+            ui_config[element_type][i] = updated
+            action_logs.append(f"Элемент {element_type[:-1]} с id={element_id} обновлён")
+            try:
+                await run_ui_tests()
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Ошибка после обновления элемента: {str(e)}")
+            return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
+    raise HTTPException(status_code=404, detail="Element not found")
+
 # Асинхронные автотесты UI с проверкой наличия и видимости всех элементов
 async def run_ui_tests():
     test_logs.append("Запуск UI тестов...")
 
-    # Проверяем кнопки
-    if not ui_config.get("buttons"):
-        test_logs.append("Ошибка: отсутствуют кнопки!")
-        raise Exception("Отсутствуют кнопки!")
-    for btn in ui_config["buttons"]:
-        if not btn.get("visible", False):
-            test_logs.append(f"Ошибка: кнопка {btn['id']} не видима")
-            raise Exception(f"Кнопка {btn['id']} не видима")
-        else:
-            test_logs.append(f"UI тест кнопки {btn['id']}: видима - OK")
-
-    # Проверяем панели
-    if not ui_config.get("panels"):
-        test_logs.append("Ошибка: отсутствуют панели!")
-        raise Exception("Отсутствуют панели!")
-    for panel in ui_config["panels"]:
-        if not panel.get("visible", False):
-            test_logs.append(f"Ошибка: панель {panel['id']} не видима")
-            raise Exception(f"Панель {panel['id']} не видима")
-        else:
-            test_logs.append(f"UI тест панели {panel['id']}: видима - OK")
-
-    # Проверяем comboboxes
-    if not ui_config.get("comboboxes"):
-        test_logs.append("Ошибка: отсутствуют comboboxes!")
-        raise Exception("Отсутствуют comboboxes!")
-    for combo in ui_config["comboboxes"]:
-        if not combo.get("visible", False):
-            test_logs.append(f"Ошибка: combobox {combo['id']} не видим")
-            raise Exception(f"Combobox {combo['id']} не видим")
-        else:
-            test_logs.append(f"UI тест combobox {combo['id']}: видим - OK")
-
-    # Проверяем dropdowns
-    if not ui_config.get("dropdowns"):
-        test_logs.append("Ошибка: отсутствуют dropdowns!")
-        raise Exception("Отсутствуют dropdowns!")
-    for dd in ui_config["dropdowns"]:
-        if not dd.get("visible", False):
-            test_logs.append(f"Ошибка: dropdown {dd['id']} не видим")
-            raise Exception(f"Dropdown {dd['id']} не видим")
-        else:
-            test_logs.append(f"UI тест dropdown {dd['id']}: видим - OK")
+    for etype in ["buttons", "panels", "comboboxes", "dropdowns"]:
+        elements = ui_config.get(etype, [])
+        if not elements:
+            test_logs.append(f"Ошибка: отсутствуют элементы типа {etype}!")
+            raise Exception(f"Отсутствуют элементы типа {etype}!")
+        for el in elements:
+            if not el.get("visible", False):
+                test_logs.append(f"Ошибка: элемент {etype[:-1]} {el['id']} не видим")
+                raise Exception(f"Элемент {etype[:-1]} {el['id']} не видим")
+            else:
+                test_logs.append(f"UI тест {etype[:-1]} {el['id']}: видим - OK")
 
     test_logs.append("UI тесты завершены.")
 
-# Асинхронные автотесты API
+# Тест обнуления конфигурации
+async def run_reset_test():
+    test_logs.append("Тест обнуления конфигурации UI...")
+    global ui_config
+    ui_config = {
+        "buttons": [],
+        "panels": [],
+        "comboboxes": [],
+        "dropdowns": [],
+    }
+    action_logs.append("Конфигурация UI обнулена (тест)")
+    total = sum(len(ui_config[key]) for key in ui_config)
+    if total != 0:
+        test_logs.append("Ошибка: конфигурация не пуста после обнуления")
+        raise Exception("Конфигурация не пуста после обнуления")
+    test_logs.append("Тест обнуления конфигурации пройден.")
+
+# Тест изменения элемента
+async def run_update_test():
+    test_logs.append("Тест изменения элемента...")
+    btn = {"id": "btn_update", "label": "Старая кнопка", "visible": True}
+    ui_config["buttons"].append(btn)
+    updated_btn = {"label": "Новая кнопка", "visible": False}
+    for i, el in enumerate(ui_config["buttons"]):
+        if el["id"] == "btn_update":
+            updated = updated_btn.copy()
+            updated["id"] = "btn_update"
+            ui_config["buttons"][i] = updated
+            break
+    el = next((e for e in ui_config["buttons"] if e["id"] == "btn_update"), None)
+    if not el or el["label"] != "Новая кнопка" or el["visible"] != False:
+        test_logs.append("Ошибка: элемент не изменён корректно")
+        raise Exception("Элемент не изменён корректно")
+    test_logs.append("Тест изменения элемента пройден.")
+
+# Асинхронные автотесты API (пример)
 async def run_api_tests():
     test_logs.append("Запуск API тестов...")
     test_logs.append("Тест API GET /api/ui-config: ожидается 200")
@@ -204,12 +237,18 @@ async def run_tests(test_type: Optional[str] = "all"):
     action_logs.append(f"Запуск автотестов типа '{test_type}'")
     test_logs.clear()
     if test_type == "ui":
-        asyncio.create_task(run_ui_tests())
+        async def ui_all():
+            await run_ui_tests()
+            await run_reset_test()
+            await run_update_test()
+        asyncio.create_task(ui_all())
     elif test_type == "api":
         asyncio.create_task(run_api_tests())
     else:
         async def run_all():
             await run_ui_tests()
+            await run_reset_test()
+            await run_update_test()
             await run_api_tests()
             test_logs.append("Все тесты завершены успешно.")
         asyncio.create_task(run_all())
@@ -268,7 +307,7 @@ async def rest_call(req: RestRequest):
         except Exception as e:
             return {"error": str(e)}
 
-# Веб-интерфейс основной страницы с Bootstrap 5
+# Веб-интерфейс основной страницы с Bootstrap и новыми формами
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -278,7 +317,6 @@ async def index():
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Демонстрация автотестирования</title>
-<!-- Bootstrap CSS -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
 <style>
   body { padding: 20px; }
@@ -293,8 +331,8 @@ async def index():
   <h1 class="mb-4">Демонстрация автотестирования</h1>
 
   <div class="mb-3 d-flex gap-2 align-items-center">
-    <button class="btn btn-primary" id="btnLoadConfig">Загрузить конфигурацию UI (GET)</button>
-    <button class="btn btn-success" id="btnRunTests">Запустить автотесты</button>
+    <button id="resetConfigBtn" class="btn btn-warning">Обнулить конфигурацию UI (PUT)</button>
+    <button id="runTestsBtn" class="btn btn-success">Запустить автотесты</button>
     <select id="testType" class="form-select w-auto">
       <option value="all">Все тесты</option>
       <option value="ui">UI тесты</option>
@@ -328,6 +366,32 @@ async def index():
     <button type="submit" class="btn btn-primary mt-3">Добавить элемент</button>
   </form>
 
+  <h2>Изменить элемент</h2>
+  <form id="editForm" class="mb-4">
+    <div class="row g-3 align-items-center">
+      <div class="col-auto">
+        <label for="editElementType" class="col-form-label">Тип элемента:</label>
+      </div>
+      <div class="col-auto">
+        <select id="editElementType" class="form-select" required>
+          <option value="">--Выберите--</option>
+          <option value="buttons">Кнопка</option>
+          <option value="panels">Панель</option>
+          <option value="comboboxes">Combobox</option>
+          <option value="dropdowns">Dropdown</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label for="editElementId" class="col-form-label">ID:</label>
+      </div>
+      <div class="col-auto">
+        <input type="text" id="editElementId" class="form-control" required />
+      </div>
+    </div>
+    <div id="editFieldsContainer" class="mt-3"></div>
+    <button type="submit" class="btn btn-primary mt-3">Изменить элемент</button>
+  </form>
+
   <h2>UI элементы</h2>
   <div id="ui-elements" class="element-list mb-4"></div>
 
@@ -335,7 +399,6 @@ async def index():
   <div id="log"></div>
 </div>
 
-<!-- Bootstrap JS Bundle (Popper + Bootstrap JS) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
@@ -374,6 +437,46 @@ function onTypeChange() {
       <div class="form-check">
         <input class="form-check-input" type="checkbox" id="elementVisible" checked />
         <label class="form-check-label" for="elementVisible">Visible</label>
+      </div>
+    `;
+  }
+}
+
+function onEditTypeChange() {
+  const type = document.getElementById('editElementType').value;
+  const container = document.getElementById('editFieldsContainer');
+  container.innerHTML = '';
+  if(type === 'buttons') {
+    container.innerHTML = `
+      <div class="mb-3">
+        <label for="editElementLabel" class="form-label">Label:</label>
+        <input type="text" id="editElementLabel" class="form-control" required />
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="editElementVisible" checked />
+        <label class="form-check-label" for="editElementVisible">Visible</label>
+      </div>
+    `;
+  } else if(type === 'panels') {
+    container.innerHTML = `
+      <div class="mb-3">
+        <label for="editElementTitle" class="form-label">Title:</label>
+        <input type="text" id="editElementTitle" class="form-control" required />
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="editElementVisible" checked />
+        <label class="form-check-label" for="editElementVisible">Visible</label>
+      </div>
+    `;
+  } else if(type === 'comboboxes' || type === 'dropdowns') {
+    container.innerHTML = `
+      <div class="mb-3">
+        <label for="editElementOptions" class="form-label">Options (через запятую):</label>
+        <input type="text" id="editElementOptions" class="form-control" required />
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="editElementVisible" checked />
+        <label class="form-check-label" for="editElementVisible">Visible</label>
       </div>
     `;
   }
@@ -424,6 +527,55 @@ async function addElement() {
     document.getElementById('fieldsContainer').innerHTML = '';
   } catch(e) {
     alert('Ошибка при добавлении элемента');
+  }
+  return false;
+}
+
+async function editElement() {
+  const type = document.getElementById('editElementType').value;
+  const id = document.getElementById('editElementId').value.trim();
+  if(!type || !id) {
+    alert('Выберите тип и введите ID');
+    return false;
+  }
+  let body = {};
+  if(type === 'buttons') {
+    const label = document.getElementById('editElementLabel').value.trim();
+    const visible = document.getElementById('editElementVisible').checked;
+    if(!label) { alert('Введите label'); return false; }
+    body.label = label;
+    body.visible = visible;
+  } else if(type === 'panels') {
+    const title = document.getElementById('editElementTitle').value.trim();
+    const visible = document.getElementById('editElementVisible').checked;
+    if(!title) { alert('Введите title'); return false; }
+    body.title = title;
+    body.visible = visible;
+  } else if(type === 'comboboxes' || type === 'dropdowns') {
+    const optionsRaw = document.getElementById('editElementOptions').value.trim();
+    const visible = document.getElementById('editElementVisible').checked;
+    if(!optionsRaw) { alert('Введите options'); return false; }
+    body.options = optionsRaw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    body.visible = visible;
+  }
+
+  try {
+    const res = await fetch(`/api/ui-config/${type}/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!res.ok) {
+      const err = await res.json();
+      alert('Ошибка: ' + err.detail);
+      return false;
+    }
+    alert('Элемент изменён');
+    loadConfig();
+    document.getElementById('editForm').reset();
+    document.getElementById('editFieldsContainer').innerHTML = '';
+  } catch(e) {
+    alert('Ошибка при изменении элемента');
   }
   return false;
 }
@@ -528,135 +680,25 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('elementType').addEventListener('change', onTypeChange);
 
-  document.getElementById('btnLoadConfig').addEventListener('click', loadConfig);
-  document.getElementById('btnRunTests').addEventListener('click', runTests);
-});
-</script>
-
-</body>
-</html>
-"""
-
-# Веб-интерфейс страницы логов и REST клиента с Bootstrap 5
-@app.get("/logs", response_class=HTMLResponse)
-async def logs_page():
-    return """
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Логи и REST клиент</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
-<style>
-  body { padding: 20px; }
-  textarea, pre { width: 100%; height: 200px; white-space: pre-wrap; background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; overflow-y: auto; }
-  label { display: block; margin-top: 10px; }
-  input, select { width: 300px; }
-</style>
-</head>
-<body>
-
-<div class="container">
-  <h1 class="mb-4">Логи действий и автотестов</h1>
-
-  <h2>Логи REST действий</h2>
-  <pre id="actionLogs" class="mb-4"></pre>
-
-  <h2>Логи автотестов</h2>
-  <pre id="testLogs" class="mb-4"></pre>
-
-  <h2>Запуск Pytest автотестов</h2>
-  <button class="btn btn-primary mb-3" id="btnRunPytest">Запустить Pytest</button>
-  <pre id="pytestOutput" class="mb-4">Отчёт пуст</pre>
-
-  <h2>REST клиент</h2>
-  <form id="restForm" class="mb-3">
-    <div class="mb-3">
-      <label for="method" class="form-label">Метод:</label>
-      <select id="method" class="form-select" required>
-        <option>GET</option>
-        <option>POST</option>
-        <option>PUT</option>
-        <option>DELETE</option>
-        <option>PATCH</option>
-      </select>
-    </div>
-    <div class="mb-3">
-      <label for="url" class="form-label">URL:</label>
-      <input type="text" id="url" class="form-control" value="http://localhost:8000/api/ui-config" required />
-    </div>
-    <div class="mb-3">
-      <label for="headers" class="form-label">Заголовки (JSON):</label>
-      <textarea id="headers" class="form-control" placeholder='{"Content-Type": "application/json"}'></textarea>
-    </div>
-    <div class="mb-3">
-      <label for="body" class="form-label">Тело запроса (JSON):</label>
-      <textarea id="body" class="form-control"></textarea>
-    </div>
-    <button type="submit" class="btn btn-success">Отправить</button>
-  </form>
-
-  <h3>Ответ</h3>
-  <pre id="response"></pre>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
-<script>
-async function updateLogs() {
-  const res1 = await fetch('/api/action-logs');
-  const data1 = await res1.json();
-  document.getElementById('actionLogs').textContent = data1.logs.join('\\n');
-
-  const res2 = await fetch('/api/test-logs');
-  const data2 = await res2.json();
-  document.getElementById('testLogs').textContent = data2.logs.join('\\n');
-}
-
-setInterval(updateLogs, 2000);
-updateLogs();
-
-document.getElementById('btnRunPytest').addEventListener('click', async () => {
-  document.getElementById('pytestOutput').textContent = "Запуск...";
-  const res = await fetch('/api/run-pytest', { method: 'POST' });
-  const data = await res.json();
-  if(res.ok) {
-    const reportRes = await fetch('/api/pytest-report');
-    const reportText = await reportRes.text();
-    document.getElementById('pytestOutput').textContent = reportText;
-  } else {
-    document.getElementById('pytestOutput').textContent = "Ошибка запуска pytest";
-  }
-});
-
-document.getElementById('restForm').addEventListener('submit', async e => {
-  e.preventDefault();
-  const method = document.getElementById('method').value;
-  const url = document.getElementById('url').value;
-  let headers = {};
-  let body = null;
-  try {
-    const headersText = document.getElementById('headers').value.trim();
-    if(headersText) headers = JSON.parse(headersText);
-  } catch(e) {
-    alert('Ошибка в JSON заголовков');
-    return;
-  }
-  try {
-    const bodyText = document.getElementById('body').value.trim();
-    if(bodyText) body = JSON.parse(bodyText);
-  } catch(e) {
-    alert('Ошибка в JSON тела запроса');
-    return;
-  }
-  const res = await fetch('/api/rest-call', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({method, url, headers, body})
+  document.getElementById('editForm').addEventListener('submit', e => {
+    e.preventDefault();
+    editElement();
   });
-  const data = await res.json();
-  document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+
+  document.getElementById('editElementType').addEventListener('change', onEditTypeChange);
+
+  document.getElementById('resetConfigBtn').addEventListener('click', async () => {
+    if (!confirm('Обнулить конфигурацию UI?')) return;
+    const res = await fetch('/api/ui-config/reset', { method: 'PUT' });
+    if (res.ok) {
+      alert('Конфигурация UI обнулена');
+      loadConfig();
+    } else {
+      alert('Ошибка при обнулении конфигурации');
+    }
+  });
+
+  document.getElementById('runTestsBtn').addEventListener('click', runTests);
 });
 </script>
 
