@@ -1,9 +1,11 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncio
+import subprocess
+import httpx
 
 app = FastAPI()
 
@@ -14,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Хранилище UI конфигурации
 ui_config = {
     "buttons": [{"id": "btn1", "label": "Кнопка 1", "visible": True}],
     "panels": [{"id": "panel1", "title": "Панель 1", "visible": True}],
@@ -22,7 +25,9 @@ ui_config = {
 }
 
 test_logs: List[str] = []
+pytest_report = ""
 
+# Модели для UI элементов
 class Button(BaseModel):
     id: str
     label: str
@@ -49,74 +54,12 @@ class UIConfig(BaseModel):
     comboboxes: Optional[List[ComboBox]] = None
     dropdowns: Optional[List[Dropdown]] = None
 
-# Добавление нового элемента (POST)
-@app.post("/api/ui-config/{element_type}")
-async def add_ui_element(element_type: str, element: dict):
-    if element_type not in ui_config:
-        raise HTTPException(status_code=404, detail="Element type not found")
-    # Проверка уникальности id
-    if any(el["id"] == element.get("id") for el in ui_config[element_type]):
-        raise HTTPException(status_code=400, detail="Element with this id already exists")
-    ui_config[element_type].append(element)
-    return {"detail": f"{element_type[:-1].capitalize()} добавлен", "element": element}
-
-# Удаление элемента (DELETE) - уже есть, но чуть упростим
-@app.delete("/api/ui-config/{element_type}/{element_id}")
-async def delete_ui_element(element_type: str, element_id: str):
-    if element_type not in ui_config:
-        raise HTTPException(status_code=404, detail="Element type not found")
-    before_count = len(ui_config[element_type])
-    ui_config[element_type] = [el for el in ui_config[element_type] if el["id"] != element_id]
-    after_count = len(ui_config[element_type])
-    if before_count == after_count:
-        raise HTTPException(status_code=404, detail="Element not found")
-    return {"detail": f"{element_type[:-1].capitalize()} удалён"}
-
-# Запуск автотестов с выбором типа
-async def run_ui_tests():
-    test_logs.append("Запуск UI тестов...")
-    for btn in ui_config["buttons"]:
-        if btn["visible"]:
-            test_logs.append(f"UI тест кнопки {btn['id']}: видима - OK")
-        else:
-            test_logs.append(f"UI тест кнопки {btn['id']}: не видима - OK")
-    test_logs.append("UI тесты завершены.")
-
-async def run_api_tests():
-    test_logs.append("Запуск API тестов...")
-    test_logs.append("Тест API GET /api/ui-config: ожидается 200")
-    test_logs.append("Ответ 200 получен - OK")
-    test_logs.append("Тест добавления кнопки POST /api/ui-config")
-    new_button = {"id": "btn_test", "label": "Тестовая кнопка", "visible": True}
-    ui_config["buttons"].append(new_button)
-    test_logs.append("Кнопка добавлена - OK")
-    ui_config["buttons"] = [b for b in ui_config["buttons"] if b["id"] != "btn_test"]
-    test_logs.append("API тесты завершены.")
-
-@app.post("/api/run-tests")
-async def run_tests(test_type: Optional[str] = "all"):
-    test_logs.clear()
-    if test_type == "ui":
-        asyncio.create_task(run_ui_tests())
-    elif test_type == "api":
-        asyncio.create_task(run_api_tests())
-    else:
-        # all
-        async def run_all():
-            await run_ui_tests()
-            await run_api_tests()
-            test_logs.append("Все тесты завершены успешно.")
-        asyncio.create_task(run_all())
-    return {"detail": f"Тесты '{test_type}' запущены"}
-
-@app.get("/api/test-logs")
-async def get_test_logs():
-    return {"logs": test_logs}
-
+# REST API: получить конфигурацию UI
 @app.get("/api/ui-config", response_model=UIConfig)
 async def get_ui_config():
     return ui_config
 
+# REST API: полное обновление UI конфигурации (PUT)
 @app.put("/api/ui-config", response_model=UIConfig)
 async def put_ui_config(config: UIConfig):
     global ui_config
@@ -130,6 +73,7 @@ async def put_ui_config(config: UIConfig):
         ui_config["dropdowns"] = [d.dict() for d in config.dropdowns]
     return ui_config
 
+# REST API: частичное обновление UI конфигурации (PATCH)
 @app.patch("/api/ui-config", response_model=UIConfig)
 async def patch_ui_config(config: UIConfig):
     global ui_config
@@ -151,7 +95,114 @@ async def patch_ui_config(config: UIConfig):
         update_list(ui_config["dropdowns"], config.dropdowns)
     return ui_config
 
-# Веб-интерфейс с формой добавления и выбором автотеста
+# REST API: добавить новый элемент (POST)
+@app.post("/api/ui-config/{element_type}")
+async def add_ui_element(element_type: str, element: dict):
+    if element_type not in ui_config:
+        raise HTTPException(status_code=404, detail="Element type not found")
+    if any(el["id"] == element.get("id") for el in ui_config[element_type]):
+        raise HTTPException(status_code=400, detail="Element with this id already exists")
+    ui_config[element_type].append(element)
+    return {"detail": f"{element_type[:-1].capitalize()} добавлен", "element": element}
+
+# REST API: удалить элемент (DELETE)
+@app.delete("/api/ui-config/{element_type}/{element_id}")
+async def delete_ui_element(element_type: str, element_id: str):
+    if element_type not in ui_config:
+        raise HTTPException(status_code=404, detail="Element type not found")
+    before_count = len(ui_config[element_type])
+    ui_config[element_type] = [el for el in ui_config[element_type] if el["id"] != element_id]
+    after_count = len(ui_config[element_type])
+    if before_count == after_count:
+        raise HTTPException(status_code=404, detail="Element not found")
+    return {"detail": f"{element_type[:-1].capitalize()} удалён"}
+
+# Асинхронные автотесты UI
+async def run_ui_tests():
+    test_logs.append("Запуск UI тестов...")
+    for btn in ui_config["buttons"]:
+        if btn["visible"]:
+            test_logs.append(f"UI тест кнопки {btn['id']}: видима - OK")
+        else:
+            test_logs.append(f"UI тест кнопки {btn['id']}: не видима - OK")
+    test_logs.append("UI тесты завершены.")
+
+# Асинхронные автотесты API
+async def run_api_tests():
+    test_logs.append("Запуск API тестов...")
+    test_logs.append("Тест API GET /api/ui-config: ожидается 200")
+    test_logs.append("Ответ 200 получен - OK")
+    test_logs.append("Тест добавления кнопки POST /api/ui-config")
+    new_button = {"id": "btn_test", "label": "Тестовая кнопка", "visible": True}
+    ui_config["buttons"].append(new_button)
+    test_logs.append("Кнопка добавлена - OK")
+    ui_config["buttons"] = [b for b in ui_config["buttons"] if b["id"] != "btn_test"]
+    test_logs.append("API тесты завершены.")
+
+# Запуск автотестов с выбором типа
+@app.post("/api/run-tests")
+async def run_tests(test_type: Optional[str] = "all"):
+    test_logs.clear()
+    if test_type == "ui":
+        asyncio.create_task(run_ui_tests())
+    elif test_type == "api":
+        asyncio.create_task(run_api_tests())
+    else:
+        async def run_all():
+            await run_ui_tests()
+            await run_api_tests()
+            test_logs.append("Все тесты завершены успешно.")
+        asyncio.create_task(run_all())
+    return {"detail": f"Тесты '{test_type}' запущены"}
+
+# Получение логов автотестов
+@app.get("/api/test-logs")
+async def get_test_logs():
+    return {"logs": test_logs}
+
+# Запуск pytest и сохранение отчёта
+@app.post("/api/run-pytest")
+async def run_pytest():
+    global pytest_report
+    proc = subprocess.run(
+        ["pytest", "test_autotests.py", "-q", "--tb=short"],
+        capture_output=True,
+        text=True
+    )
+    pytest_report = proc.stdout + "\n" + proc.stderr
+    return {"detail": "Pytest запущен", "output": pytest_report}
+
+# Получение pytest отчёта
+@app.get("/api/pytest-report")
+async def get_pytest_report():
+    return PlainTextResponse(pytest_report or "Отчёт пуст")
+
+# REST клиент: модель запроса
+class RestRequest(BaseModel):
+    method: str
+    url: str
+    headers: Optional[dict] = None
+    body: Optional[dict] = None
+
+# REST клиент: вызов произвольного REST API
+@app.post("/api/rest-call")
+async def rest_call(req: RestRequest):
+    async with httpx.AsyncClient() as client:
+        method = req.method.lower()
+        if not hasattr(client, method):
+            return {"error": "Неподдерживаемый HTTP метод"}
+        func = getattr(client, method)
+        try:
+            r = await func(req.url, headers=req.headers, json=req.body)
+            return {
+                "status_code": r.status_code,
+                "headers": dict(r.headers),
+                "body": r.json() if "application/json" in r.headers.get("content-type", "") else r.text
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+# Веб-интерфейс основной страницы
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -163,7 +214,6 @@ async def index():
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
   #log { width: 100%; height: 200px; border: 1px solid #ccc; overflow-y: scroll; background: #f9f9f9; padding: 10px; white-space: pre-wrap; }
-  .hidden { display: none; }
   .panel { border: 1px solid #aaa; padding: 10px; margin-bottom: 10px; }
   button { margin: 5px; }
   label { display: block; margin-top: 10px; }
@@ -375,6 +425,104 @@ async function runTests() {
 }
 
 window.onload = loadConfig;
+</script>
+
+</body>
+</html>
+"""
+
+# Веб-интерфейс страницы логов и REST клиента
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page():
+    return """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>Логи и REST клиент</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  textarea, pre { width: 100%; height: 200px; }
+  label { display: block; margin-top: 10px; }
+  input, select { width: 300px; }
+  button { margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>Логи автотестов и REST клиент</h1>
+
+<h2>Запуск Pytest автотестов</h2>
+<button onclick="runPytest()">Запустить Pytest</button>
+<pre id="pytestOutput">Отчёт пуст</pre>
+
+<h2>REST клиент</h2>
+<form id="restForm" onsubmit="return sendRestCall();">
+  <label>Метод:
+    <select id="method" required>
+      <option>GET</option>
+      <option>POST</option>
+      <option>PUT</option>
+      <option>DELETE</option>
+      <option>PATCH</option>
+    </select>
+  </label>
+  <label>URL:
+    <input type="text" id="url" value="http://localhost:8000/api/ui-config" required />
+  </label>
+  <label>Заголовки (JSON):
+    <textarea id="headers" placeholder='{"Content-Type": "application/json"}'></textarea>
+  </label>
+  <label>Тело запроса (JSON):
+    <textarea id="body"></textarea>
+  </label>
+  <button type="submit">Отправить</button>
+</form>
+
+<h3>Ответ</h3>
+<pre id="response"></pre>
+
+<script>
+async function runPytest() {
+  document.getElementById('pytestOutput').textContent = "Запуск...";
+  const res = await fetch('/api/run-pytest', { method: 'POST' });
+  const data = await res.json();
+  if(res.ok) {
+    const reportRes = await fetch('/api/pytest-report');
+    const reportText = await reportRes.text();
+    document.getElementById('pytestOutput').textContent = reportText;
+  } else {
+    document.getElementById('pytestOutput').textContent = "Ошибка запуска pytest";
+  }
+}
+
+async function sendRestCall() {
+  const method = document.getElementById('method').value;
+  const url = document.getElementById('url').value;
+  let headers = {};
+  let body = null;
+  try {
+    const headersText = document.getElementById('headers').value.trim();
+    if(headersText) headers = JSON.parse(headersText);
+  } catch(e) {
+    alert('Ошибка в JSON заголовков');
+    return false;
+  }
+  try {
+    const bodyText = document.getElementById('body').value.trim();
+    if(bodyText) body = JSON.parse(bodyText);
+  } catch(e) {
+    alert('Ошибка в JSON тела запроса');
+    return false;
+  }
+  const res = await fetch('/api/rest-call', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({method, url, headers, body})
+  });
+  const data = await res.json();
+  document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+  return false;
+}
 </script>
 
 </body>
