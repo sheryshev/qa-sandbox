@@ -3,8 +3,9 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY main.py /app/
+COPY test_autotests.py /app/
 
-RUN pip install fastapi uvicorn
+RUN pip install fastapi uvicorn httpx pytest pytest-asyncio
 
 EXPOSE 8000
 
