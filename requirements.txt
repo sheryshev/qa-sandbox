@@ -1,6 +1,5 @@
-streamlit
 fastapi
 uvicorn
-requests
-pydantic
-playwright
+httpx
+pytest
+pytest-asyncio
