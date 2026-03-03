@@ -139,39 +139,50 @@ async def delete_ui_element(element_type: str, element_id: str):
 # Асинхронные автотесты UI с проверкой наличия и видимости всех элементов
 async def run_ui_tests():
     test_logs.append("Запуск UI тестов...")
+
     # Проверяем кнопки
+    if not ui_config.get("buttons"):
+        test_logs.append("Ошибка: отсутствуют кнопки!")
+        raise Exception("Отсутствуют кнопки!")
     for btn in ui_config["buttons"]:
-        if not btn["visible"]:
-            test_logs.append(f"UI тест кнопки {btn['id']}: не видима - FAIL")
+        if not btn.get("visible", False):
+            test_logs.append(f"Ошибка: кнопка {btn['id']} не видима")
             raise Exception(f"Кнопка {btn['id']} не видима")
         else:
             test_logs.append(f"UI тест кнопки {btn['id']}: видима - OK")
+
     # Проверяем панели
+    if not ui_config.get("panels"):
+        test_logs.append("Ошибка: отсутствуют панели!")
+        raise Exception("Отсутствуют панели!")
     for panel in ui_config["panels"]:
-        if not panel["visible"]:
-            test_logs.append(f"UI тест панели {panel['id']}: не видима - FAIL")
+        if not panel.get("visible", False):
+            test_logs.append(f"Ошибка: панель {panel['id']} не видима")
             raise Exception(f"Панель {panel['id']} не видима")
         else:
             test_logs.append(f"UI тест панели {panel['id']}: видима - OK")
+
     # Проверяем comboboxes
+    if not ui_config.get("comboboxes"):
+        test_logs.append("Ошибка: отсутствуют comboboxes!")
+        raise Exception("Отсутствуют comboboxes!")
     for combo in ui_config["comboboxes"]:
-        if not combo["visible"]:
-            test_logs.append(f"UI тест combobox {combo['id']}: не видим - FAIL")
+        if not combo.get("visible", False):
+            test_logs.append(f"Ошибка: combobox {combo['id']} не видим")
             raise Exception(f"Combobox {combo['id']} не видим")
         else:
             test_logs.append(f"UI тест combobox {combo['id']}: видим - OK")
+
     # Проверяем dropdowns
+    if not ui_config.get("dropdowns"):
+        test_logs.append("Ошибка: отсутствуют dropdowns!")
+        raise Exception("Отсутствуют dropdowns!")
     for dd in ui_config["dropdowns"]:
-        if not dd["visible"]:
-            test_logs.append(f"UI тест dropdown {dd['id']}: не видим - FAIL")
+        if not dd.get("visible", False):
+            test_logs.append(f"Ошибка: dropdown {dd['id']} не видим")
             raise Exception(f"Dropdown {dd['id']} не видим")
         else:
             test_logs.append(f"UI тест dropdown {dd['id']}: видим - OK")
-
-    total_elements = sum(len(ui_config[key]) for key in ui_config)
-    if total_elements == 0:
-        test_logs.append("Ошибка: Нет ни одного UI элемента!")
-        raise Exception("Нет ни одного UI элемента!")
 
     test_logs.append("UI тесты завершены.")
 
