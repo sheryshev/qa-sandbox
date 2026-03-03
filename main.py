@@ -107,28 +107,6 @@ async def patch_ui_config(config: UIConfig):
     action_logs.append("PATCH /api/ui-config - частично обновлена конфигурация UI")
     return ui_config
 
-# Новый метод PUT для изменения конкретного элемента по типу и id
-@app.put("/api/ui-config/{element_type}/{element_id}")
-async def update_ui_element(element_type: str, element_id: str, element: dict):
-    if element_type not in ui_config:
-        raise HTTPException(status_code=404, detail="Element type not found")
-    for i, el in enumerate(ui_config[element_type]):
-        if el["id"] == element_id:
-            # Обновляем поля элемента, id менять нельзя
-            updated = el.copy()
-            for k, v in element.items():
-                if k != "id":
-                    updated[k] = v
-            ui_config[element_type][i] = updated
-            action_logs.append(f"PUT /api/ui-config/{element_type}/{element_id} - элемент обновлён")
-            # Проверяем после обновления
-            try:
-                await run_ui_tests()
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Ошибка после обновления элемента: {str(e)}")
-            return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
-    raise HTTPException(status_code=404, detail="Element not found")
-
 # REST API: добавить новый элемент (POST)
 @app.post("/api/ui-config/{element_type}")
 async def add_ui_element(element_type: str, element: dict):
@@ -315,8 +293,8 @@ async def index():
   <h1 class="mb-4">Демонстрация автотестирования</h1>
 
   <div class="mb-3 d-flex gap-2 align-items-center">
-    <button class="btn btn-primary" onclick="loadConfig()">Загрузить конфигурацию UI (GET)</button>
-    <button class="btn btn-success" onclick="runTests()">Запустить автотесты</button>
+    <button class="btn btn-primary" id="btnLoadConfig">Загрузить конфигурацию UI (GET)</button>
+    <button class="btn btn-success" id="btnRunTests">Запустить автотесты</button>
     <select id="testType" class="form-select w-auto">
       <option value="all">Все тесты</option>
       <option value="ui">UI тесты</option>
@@ -325,13 +303,13 @@ async def index():
   </div>
 
   <h2>Добавить новый элемент</h2>
-  <form id="addForm" onsubmit="return addElement();" class="mb-4">
+  <form id="addForm" class="mb-4">
     <div class="row g-3 align-items-center">
       <div class="col-auto">
         <label for="elementType" class="col-form-label">Тип элемента:</label>
       </div>
       <div class="col-auto">
-        <select id="elementType" class="form-select" required onchange="onTypeChange()">
+        <select id="elementType" class="form-select" required>
           <option value="">--Выберите--</option>
           <option value="buttons">Кнопка</option>
           <option value="panels">Панель</option>
@@ -464,6 +442,10 @@ async function deleteElement(type, id) {
 
 async function loadConfig() {
   const res = await fetch('/api/ui-config');
+  if (!res.ok) {
+    alert('Ошибка загрузки конфигурации UI');
+    return;
+  }
   const config = await res.json();
   const container = document.getElementById('ui-elements');
   container.innerHTML = '';
@@ -471,16 +453,8 @@ async function loadConfig() {
   function createDeleteBtn(type, id) {
     const btn = document.createElement('button');
     btn.textContent = 'Удалить';
-    btn.className = 'btn btn-sm btn-outline-danger me-2';
+    btn.className = 'btn btn-sm btn-outline-danger';
     btn.onclick = () => deleteElement(type, id);
-    return btn;
-  }
-
-  function createEditBtn(type, id) {
-    const btn = document.createElement('button');
-    btn.textContent = 'Изменить';
-    btn.className = 'btn btn-sm btn-outline-primary';
-    btn.onclick = () => openEditModal(type, id);
     return btn;
   }
 
@@ -491,5 +465,201 @@ async function loadConfig() {
     container.appendChild(h3);
     const listDiv = document.createElement('div');
     listDiv.className = 'element-list mb-3';
-    items
+    items.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'element-item';
+      div.appendChild(renderItem(item));
+      div.appendChild(createDeleteBtn(type, item.id));
+      listDiv.appendChild(div);
+    });
+    container.appendChild(listDiv);
+  }
+
+  createSection('Кнопки', config.buttons, 'buttons', item => {
+    const span = document.createElement('span');
+    span.textContent = `${item.id} — ${item.label} — Видим: ${item.visible}`;
+    return span;
+  });
+
+  createSection('Панели', config.panels, 'panels', item => {
+    const span = document.createElement('span');
+    span.textContent = `${item.id} — ${item.title} — Видим: ${item.visible}`;
+    return span;
+  });
+
+  createSection('Comboboxes', config.comboboxes, 'comboboxes', item => {
+    const span = document.createElement('span');
+    span.textContent = `${item.id} — Опции: ${item.options.join(', ')} — Видим: ${item.visible}`;
+    return span;
+  });
+
+  createSection('Dropdowns', config.dropdowns, 'dropdowns', item => {
+    const span = document.createElement('span');
+    span.textContent = `${item.id} — Опции: ${item.options.join(', ')} — Видим: ${item.visible}`;
+    return span;
+  });
+}
+
+async function runTests() {
+  const testType = document.getElementById('testType').value;
+  const logDiv = document.getElementById('log');
+  logDiv.textContent = "Запуск тестов...";
+  await fetch(`/api/run-tests?test_type=${testType}`, { method: 'POST' });
+
+  const interval = setInterval(async () => {
+    const res = await fetch('/api/test-logs');
+    const data = await res.json();
+    logDiv.textContent = data.logs.join('\\n');
+    logDiv.scrollTop = logDiv.scrollHeight;
+
+    if(data.logs.length > 0 && (data.logs[data.logs.length - 1].toLowerCase().includes("завершен"))) {
+      clearInterval(interval);
+    }
+  }, 1000);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  loadConfig();
+
+  document.getElementById('addForm').addEventListener('submit', e => {
+    e.preventDefault();
+    addElement();
+  });
+
+  document.getElementById('elementType').addEventListener('change', onTypeChange);
+
+  document.getElementById('btnLoadConfig').addEventListener('click', loadConfig);
+  document.getElementById('btnRunTests').addEventListener('click', runTests);
+});
+</script>
+
+</body>
+</html>
+"""
+
+# Веб-интерфейс страницы логов и REST клиента с Bootstrap 5
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page():
+    return """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Логи и REST клиент</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+<style>
+  body { padding: 20px; }
+  textarea, pre { width: 100%; height: 200px; white-space: pre-wrap; background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; overflow-y: auto; }
+  label { display: block; margin-top: 10px; }
+  input, select { width: 300px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1 class="mb-4">Логи действий и автотестов</h1>
+
+  <h2>Логи REST действий</h2>
+  <pre id="actionLogs" class="mb-4"></pre>
+
+  <h2>Логи автотестов</h2>
+  <pre id="testLogs" class="mb-4"></pre>
+
+  <h2>Запуск Pytest автотестов</h2>
+  <button class="btn btn-primary mb-3" id="btnRunPytest">Запустить Pytest</button>
+  <pre id="pytestOutput" class="mb-4">Отчёт пуст</pre>
+
+  <h2>REST клиент</h2>
+  <form id="restForm" class="mb-3">
+    <div class="mb-3">
+      <label for="method" class="form-label">Метод:</label>
+      <select id="method" class="form-select" required>
+        <option>GET</option>
+        <option>POST</option>
+        <option>PUT</option>
+        <option>DELETE</option>
+        <option>PATCH</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label for="url" class="form-label">URL:</label>
+      <input type="text" id="url" class="form-control" value="http://localhost:8000/api/ui-config" required />
+    </div>
+    <div class="mb-3">
+      <label for="headers" class="form-label">Заголовки (JSON):</label>
+      <textarea id="headers" class="form-control" placeholder='{"Content-Type": "application/json"}'></textarea>
+    </div>
+    <div class="mb-3">
+      <label for="body" class="form-label">Тело запроса (JSON):</label>
+      <textarea id="body" class="form-control"></textarea>
+    </div>
+    <button type="submit" class="btn btn-success">Отправить</button>
+  </form>
+
+  <h3>Ответ</h3>
+  <pre id="response"></pre>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+async function updateLogs() {
+  const res1 = await fetch('/api/action-logs');
+  const data1 = await res1.json();
+  document.getElementById('actionLogs').textContent = data1.logs.join('\\n');
+
+  const res2 = await fetch('/api/test-logs');
+  const data2 = await res2.json();
+  document.getElementById('testLogs').textContent = data2.logs.join('\\n');
+}
+
+setInterval(updateLogs, 2000);
+updateLogs();
+
+document.getElementById('btnRunPytest').addEventListener('click', async () => {
+  document.getElementById('pytestOutput').textContent = "Запуск...";
+  const res = await fetch('/api/run-pytest', { method: 'POST' });
+  const data = await res.json();
+  if(res.ok) {
+    const reportRes = await fetch('/api/pytest-report');
+    const reportText = await reportRes.text();
+    document.getElementById('pytestOutput').textContent = reportText;
+  } else {
+    document.getElementById('pytestOutput').textContent = "Ошибка запуска pytest";
+  }
+});
+
+document.getElementById('restForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const method = document.getElementById('method').value;
+  const url = document.getElementById('url').value;
+  let headers = {};
+  let body = null;
+  try {
+    const headersText = document.getElementById('headers').value.trim();
+    if(headersText) headers = JSON.parse(headersText);
+  } catch(e) {
+    alert('Ошибка в JSON заголовков');
+    return;
+  }
+  try {
+    const bodyText = document.getElementById('body').value.trim();
+    if(bodyText) body = JSON.parse(bodyText);
+  } catch(e) {
+    alert('Ошибка в JSON тела запроса');
+    return;
+  }
+  const res = await fetch('/api/rest-call', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({method, url, headers, body})
+  });
+  const data = await res.json();
+  document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+});
+</script>
+
+</body>
+</html>
 """
