@@ -541,6 +541,7 @@ async function addElement() {
   return false;
 }
 
+Конечно! Вот полный оставшийся код JavaScript, который идёт после начала функции editElement():
 async function editElement() {
   const type = document.getElementById('editElementType').value;
   const id = document.getElementById('editElementId').value.trim();
@@ -671,7 +672,7 @@ async function runTests() {
   const interval = setInterval(async () => {
     const res = await fetch('/api/test-logs');
     const data = await res.json();
-    logDiv.textContent = data.logs.join('\\n');
+    logDiv.textContent = data.logs.join('\n');
     logDiv.scrollTop = logDiv.scrollHeight;
 
     if(data.logs.length > 0 && (data.logs[data.logs.length - 1].toLowerCase().includes("завершен"))) {
@@ -710,6 +711,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('runTestsBtn').addEventListener('click', runTests);
 });
+
 </script>
 
 </body>
