@@ -1,4 +1,4 @@
-FROM ://mcr.microsoft.com
+FROM mcr.microsoft.com
 
 WORKDIR /app
 
