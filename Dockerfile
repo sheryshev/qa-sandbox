@@ -1,6 +1,7 @@
+# Используем официальный образ Python 3.11 slim
 FROM python:3.11-slim
 
-# Обновляем списки пакетов и устанавливаем необходимые зависимости для Playwright и Chromium
+# Устанавливаем системные зависимости для Playwright и Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
@@ -27,19 +28,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
+# Рабочая директория внутри контейнера
 WORKDIR /app
 
+# Копируем файл с зависимостями и устанавливаем их
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем Playwright и браузер Chromium
+# Устанавливаем Playwright и браузеры
 RUN pip install playwright
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
+# Копируем весь код проекта
 COPY . .
 
+# Открываем порты (необязательно, но полезно для локального теста)
 EXPOSE 8501
 EXPOSE 8000
 
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
+# Запускаем Streamlit, используя порт из переменной окружения PORT (важно для Railway)
+CMD ["sh", "-c", "streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT:-8501}"]
