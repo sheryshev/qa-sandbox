@@ -492,3 +492,4 @@ async function loadConfig() {
     const listDiv = document.createElement('div');
     listDiv.className = 'element-list mb-3';
     items
+"""
