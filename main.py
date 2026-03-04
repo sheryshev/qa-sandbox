@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ DEFAULT_UI_CONFIG = {
     "dropdowns": [{"id": "dd1", "options": ["Выпад 1", "Выпад 2"], "visible": True}],
 }
 
+# Хранилище UI конфигурации
 ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
 
 test_logs: List[str] = []
@@ -63,11 +64,11 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     return response
 
-@app.get("/api/ui-config", response_model=UIConfig, status_code=status.HTTP_200_OK)
+@app.get("/api/ui-config", response_model=UIConfig)
 async def get_ui_config():
     return ui_config
 
-@app.put("/api/ui-config", response_model=UIConfig, status_code=status.HTTP_200_OK)
+@app.put("/api/ui-config", response_model=UIConfig)
 async def put_ui_config(config: UIConfig):
     global ui_config
     if config.buttons is not None:
@@ -81,7 +82,7 @@ async def put_ui_config(config: UIConfig):
     action_logs.append("PUT /api/ui-config - обновлена конфигурация UI")
     return ui_config
 
-@app.patch("/api/ui-config", response_model=UIConfig, status_code=status.HTTP_200_OK)
+@app.patch("/api/ui-config", response_model=UIConfig)
 async def patch_ui_config(config: UIConfig):
     global ui_config
     def update_list(old_list, new_items):
@@ -103,43 +104,43 @@ async def patch_ui_config(config: UIConfig):
     action_logs.append("PATCH /api/ui-config - частично обновлена конфигурация UI")
     return ui_config
 
-@app.post("/api/ui-config/{element_type}", status_code=status.HTTP_201_CREATED)
+@app.post("/api/ui-config/{element_type}")
 async def add_ui_element(element_type: str, element: dict):
     if element_type not in ui_config:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Element type not found")
+        raise HTTPException(status_code=404, detail="Element type not found")
     if any(el["id"] == element.get("id") for el in ui_config[element_type]):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Element with this id already exists")
+        raise HTTPException(status_code=400, detail="Element with this id already exists")
     ui_config[element_type].append(element)
     action_logs.append(f"Добавлен элемент {element_type[:-1]} с id={element.get('id')}")
     try:
         await run_ui_tests()
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ошибка после добавления элемента: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Ошибка после добавления элемента: {str(e)}")
     return {"detail": f"{element_type[:-1].capitalize()} добавлен", "element": element}
 
-@app.delete("/api/ui-config/{element_type}/{element_id}", status_code=status.HTTP_200_OK)
+@app.delete("/api/ui-config/{element_type}/{element_id}")
 async def delete_ui_element(element_type: str, element_id: str):
     if element_type not in ui_config:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Element type not found")
+        raise HTTPException(status_code=404, detail="Element type not found")
     before_count = len(ui_config[element_type])
     ui_config[element_type] = [el for el in ui_config[element_type] if el["id"] != element_id]
     after_count = len(ui_config[element_type])
     if before_count == after_count:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Element not found")
+        raise HTTPException(status_code=404, detail="Element not found")
     action_logs.append(f"Удалён элемент {element_type[:-1]} с id={element_id}")
     return {"detail": f"{element_type[:-1].capitalize()} удалён"}
 
-@app.put("/api/ui-config/reset", status_code=status.HTTP_200_OK)
+@app.put("/api/ui-config/reset")
 async def reset_ui_config():
     global ui_config
     ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
     action_logs.append("Конфигурация UI обнулена до дефолтной")
     return {"detail": "Конфигурация UI обнулена до дефолтной", "ui_config": ui_config}
 
-@app.put("/api/ui-config/{element_type}/{element_id}", status_code=status.HTTP_200_OK)
+@app.put("/api/ui-config/{element_type}/{element_id}")
 async def update_ui_element(element_type: str, element_id: str, element: dict):
     if element_type not in ui_config:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Element type not found")
+        raise HTTPException(status_code=404, detail="Element type not found")
     for i, el in enumerate(ui_config[element_type]):
         if el["id"] == element_id:
             updated = element.copy()
@@ -149,9 +150,9 @@ async def update_ui_element(element_type: str, element_id: str, element: dict):
             try:
                 await run_ui_tests()
             except Exception as e:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ошибка после обновления элемента: {str(e)}")
+                raise HTTPException(status_code=400, detail=f"Ошибка после обновления элемента: {str(e)}")
             return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Element not found")
+    raise HTTPException(status_code=404, detail="Element not found")
 
 async def run_ui_tests():
     test_logs.append("Запуск UI тестов...")
@@ -671,7 +672,7 @@ async function runTests() {
   const interval = setInterval(async () => {
     const res = await fetch('/api/test-logs');
     const data = await res.json();
-    logDiv.textContent = data.logs.join('\n');
+    logDiv.textContent = data.logs.join('\\n');
     logDiv.scrollTop = logDiv.scrollHeight;
 
     if(data.logs.length > 0 && (data.logs[data.logs.length - 1].toLowerCase().includes("завершен"))) {
