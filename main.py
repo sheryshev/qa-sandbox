@@ -1,3 +1,4 @@
+Here is the complete main.py file based on the previous discussions and updates:
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -541,7 +542,6 @@ async function addElement() {
   return false;
 }
 
-Конечно! Вот полный оставшийся код JavaScript, который идёт после начала функции editElement():
 async function editElement() {
   const type = document.getElementById('editElementType').value;
   const id = document.getElementById('editElementId').value.trim();
@@ -711,7 +711,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('runTestsBtn').addEventListener('click', runTests);
 });
-
 </script>
 
 </body>
