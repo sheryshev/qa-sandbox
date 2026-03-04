@@ -154,6 +154,41 @@ async def update_ui_element(element_type: str, element_id: str, element: dict):
             return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Element not found")
 
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page():
+    return """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>Логи автотестов и действий</title>
+<style>
+  body { font-family: monospace; padding: 20px; }
+  pre { background: #f0f0f0; padding: 10px; height: 300px; overflow-y: scroll; }
+</style>
+</head>
+<body>
+<h1>Логи действий</h1>
+<pre id="actionLogs">Загрузка...</pre>
+<h1>Логи автотестов</h1>
+<pre id="testLogs">Загрузка...</pre>
+<script>
+async function updateLogs() {
+  const resActions = await fetch('/api/action-logs');
+  const dataActions = await resActions.json();
+  document.getElementById('actionLogs').textContent = dataActions.logs.join('\\n');
+
+  const resTests = await fetch('/api/test-logs');
+  const dataTests = await resTests.json();
+  document.getElementById('testLogs').textContent = dataTests.logs.join('\\n');
+}
+setInterval(updateLogs, 2000);
+updateLogs();
+</script>
+</body>
+</html>
+"""
+    
 @app.post("/api/run-tests")
 async def run_tests():
     test_logs.clear()
