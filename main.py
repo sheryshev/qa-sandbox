@@ -161,26 +161,32 @@ async def logs_page():
 <html lang="ru">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Логи автотестов и действий</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
 <style>
-  body { font-family: monospace; padding: 20px; }
-  pre { background: #f0f0f0; padding: 10px; height: 300px; overflow-y: scroll; }
+  body { padding: 20px; }
+  pre { background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; height: 300px; overflow-y: auto; white-space: pre-wrap; }
 </style>
 </head>
 <body>
-<h1>Логи действий</h1>
-<pre id="actionLogs">Загрузка...</pre>
-<h1>Логи автотестов</h1>
-<pre id="testLogs">Загрузка...</pre>
+<div class="container">
+  <h1 class="mb-4">Логи автотестов и действий</h1>
+  <h2>Логи действий (REST вызовы и др.)</h2>
+  <pre id="actionLogs">Загрузка...</pre>
+  <h2>Логи автотестов</h2>
+  <pre id="testLogs">Загрузка...</pre>
+  <a href="/" class="btn btn-primary mt-3">Вернуться на главную</a>
+</div>
 <script>
 async function updateLogs() {
-  const resActions = await fetch('/api/action-logs');
-  const dataActions = await resActions.json();
-  document.getElementById('actionLogs').textContent = dataActions.logs.join('\\n');
+  const res1 = await fetch('/api/action-logs');
+  const data1 = await res1.json();
+  document.getElementById('actionLogs').textContent = data1.logs.join('\\n');
 
-  const resTests = await fetch('/api/test-logs');
-  const dataTests = await resTests.json();
-  document.getElementById('testLogs').textContent = dataTests.logs.join('\\n');
+  const res2 = await fetch('/api/test-logs');
+  const data2 = await res2.json();
+  document.getElementById('testLogs').textContent = data2.logs.join('\\n');
 }
 setInterval(updateLogs, 2000);
 updateLogs();
