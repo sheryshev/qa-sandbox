@@ -1,4 +1,3 @@
-Here is the complete main.py file based on the previous discussions and updates:
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
