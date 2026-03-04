@@ -1,11 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncio
-import subprocess
-import httpx
 
 app = FastAPI()
 
@@ -24,86 +22,102 @@ DEFAULT_UI_CONFIG = {
 }
 
 ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
-http_status_codes = {"default": 200}  # Хранилище для HTTP-кодов
 
 test_logs: List[str] = []
 action_logs: List[str] = []
-pytest_report = ""
-
-class Button(BaseModel):
-    id: str
-    label: str
-    visible: bool
-
-class Panel(BaseModel):
-    id: str
-    title: str
-    visible: bool
-
-class ComboBox(BaseModel):
-    id: str
-    options: List[str]
-    visible: bool
-
-class Dropdown(BaseModel):
-    id: str
-    options: List[str]
-    visible: bool
+http_status_code = 200  # Глобальный HTTP код для тестов
 
 class UIConfig(BaseModel):
-    buttons: Optional[List[Button]] = None
-    panels: Optional[List[Panel]] = None
-    comboboxes: Optional[List[ComboBox]] = None
-    dropdowns: Optional[List[Dropdown]] = None
+    buttons: Optional[List[dict]] = None
+    panels: Optional[List[dict]] = None
+    comboboxes: Optional[List[dict]] = None
+    dropdowns: Optional[List[dict]] = None
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    method = request.method
-    url = str(request.url)
-    action_logs.append(f"REST {method} {url}")
-    response = await call_next(request)
-    return response
-
-@app.get("/api/ui-config", response_model=UIConfig, status_code=status.HTTP_200_OK)
+@app.get("/api/ui-config", response_model=UIConfig)
 async def get_ui_config():
     return ui_config
 
-@app.put("/api/ui-config", response_model=UIConfig, status_code=status.HTTP_200_OK)
-async def put_ui_config(config: UIConfig):
+@app.put("/api/ui-config/reset")
+async def reset_ui_config():
     global ui_config
-    if config.buttons is not None:
-        ui_config["buttons"] = [b.dict() for b in config.buttons]
-    if config.panels is not None:
-        ui_config["panels"] = [p.dict() for p in config.panels]
-    if config.comboboxes is not None:
-        ui_config["comboboxes"] = [c.dict() for c in config.comboboxes]
-    if config.dropdowns is not None:
-        ui_config["dropdowns"] = [d.dict() for d in config.dropdowns]
-    action_logs.append("PUT /api/ui-config - обновлена конфигурация UI")
-    return ui_config
+    ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
+    action_logs.append("Конфигурация UI обнулена до дефолтной")
+    return {"detail": "Конфигурация UI обнулена"}
 
-@app.patch("/api/ui-config", response_model=UIConfig, status_code=status.HTTP_200_OK)
-async def patch_ui_config(config: UIConfig):
-    global ui_config
-    def update_list(old_list, new_items):
-        for new_item in new_items:
-            for i, old_item in enumerate(old_list):
-                if old_item["id"] == new_item.id:
-                    old_list[i] = new_item.dict()
-                    break
-            else:
-                old_list.append(new_item.dict())
-    if config.buttons is not None:
-        update_list(ui_config["buttons"], config.buttons)
-    if config.panels is not None:
-        update_list(ui_config["panels"], config.panels)
-    if config.comboboxes is not None:
-        update_list(ui_config["comboboxes"], config.comboboxes)
-    if config.dropdowns is not None:
-        update_list(ui_config["dropdowns"], config.dropdowns)
-    action_logs.append("PATCH /api/ui-config - частично обновлена конфигурация UI")
-    return ui_config
+@app.put("/api/http-status")
+async def set_http_status(code: int):
+    global http_status_code
+    if code < 100 or code > 599:
+        raise HTTPException(status_code=400, detail="Некорректный HTTP код")
+    http_status_code = code
+    action_logs.append(f"HTTP код ответа изменён на {code}")
+    return {"detail": f"HTTP код изменён на {code}"}
 
+@app.get("/api/http-status")
+async def get_http_status():
+    return {"http_status": http_status_code}
+
+@app.post("/api/ui-config/{element_type}")
+async def add_ui_element(element_type: str, element: dict):
+    if element_type not in ui_config:
+        raise HTTPException(status_code=404, detail="Тип элемента не найден")
+    if any(el["id"] == element.get("id") for el in ui_config[element_type]):
+        raise HTTPException(status_code=400, detail="Элемент с таким id уже существует")
+    ui_config[element_type].append(element)
+    action_logs.append(f"Добавлен элемент {element_type[:-1]} с id={element.get('id')}")
+    return {"detail": f"{element_type[:-1].capitalize()} добавлен", "element": element}
+
+@app.put("/api/ui-config/{element_type}/{element_id}")
+async def update_ui_element(element_type: str, element_id: str, element: dict):
+    if element_type not in ui_config:
+        raise HTTPException(status_code=404, detail="Тип элемента не найден")
+    for i, el in enumerate(ui_config[element_type]):
+        if el["id"] == element_id:
+            updated = element.copy()
+            updated["id"] = element_id
+            ui_config[element_type][i] = updated
+            action_logs.append(f"Элемент {element_type[:-1]} с id={element_id} обновлён")
+            return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
+    raise HTTPException(status_code=404, detail="Элемент не найден")
+
+@app.delete("/api/ui-config/{element_type}/{element_id}")
+async def delete_ui_element(element_type: str, element_id: str):
+    if element_type not in ui_config:
+        raise HTTPException(status_code=404, detail="Тип элемента не найден")
+    before = len(ui_config[element_type])
+    ui_config[element_type] = [el for el in ui_config[element_type] if el["id"] != element_id]
+    after = len(ui_config[element_type])
+    if before == after:
+        raise HTTPException(status_code=404, detail="Элемент не найден")
+    action_logs.append(f"Удалён элемент {element_type[:-1]} с id={element_id}")
+    return {"detail": f"{element_type[:-1].capitalize()} удалён"}
+
+@app.post("/api/run-tests")
+async def run_tests():
+    test_logs.clear()
+    test_logs.append(f"Запуск автотестов с HTTP кодом {http_status_code}...")
+    if http_status_code != 200:
+        test_logs.append(f"Ошибка: HTTP код {http_status_code} не равен 200!")
+        return {"detail": "Тесты завершены с ошибкой", "http_status": http_status_code}
+    for etype in ["buttons", "panels", "comboboxes", "dropdowns"]:
+        if not ui_config.get(etype):
+            test_logs.append(f"Ошибка: отсутствуют элементы типа {etype}")
+            return {"detail": f"Ошибка: отсутствуют элементы типа {etype}"}
+        for el in ui_config[etype]:
+            if not el.get("visible", False):
+                test_logs.append(f"Ошибка: элемент {etype[:-1]} {el['id']} не видим")
+                return {"detail": f"Ошибка: элемент {etype[:-1]} {el['id']} не видим"}
+            test_logs.append(f"UI тест {etype[:-1]} {el['id']}: видим - OK")
+    test_logs.append("Все тесты пройдены успешно.")
+    return {"detail": "Тесты успешно завершены"}
+
+@app.get("/api/test-logs")
+async def get_test_logs():
+    return {"logs": test_logs}
+
+@app.get("/api/action-logs")
+async def get_action_logs():
+    return {"logs": action_logs}
 
 @app.post("/api/ui-config/{element_type}", status_code=status.HTTP_201_CREATED)
 async def add_ui_element(element_type: str, element: dict):
@@ -113,10 +127,6 @@ async def add_ui_element(element_type: str, element: dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Element with this id already exists")
     ui_config[element_type].append(element)
     action_logs.append(f"Добавлен элемент {element_type[:-1]} с id={element.get('id')}")
-    try:
-        await run_ui_tests()
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ошибка после добавления элемента: {str(e)}")
     return {"detail": f"{element_type[:-1].capitalize()} добавлен", "element": element}
 
 @app.delete("/api/ui-config/{element_type}/{element_id}", status_code=status.HTTP_200_OK)
@@ -131,13 +141,6 @@ async def delete_ui_element(element_type: str, element_id: str):
     action_logs.append(f"Удалён элемент {element_type[:-1]} с id={element_id}")
     return {"detail": f"{element_type[:-1].capitalize()} удалён"}
 
-@app.put("/api/ui-config/reset", status_code=status.HTTP_200_OK)
-async def reset_ui_config():
-    global ui_config
-    ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
-    action_logs.append("Конфигурация UI обнулена до дефолтной")
-    return {"detail": "Конфигурация UI обнулена до дефолтной", "ui_config": ui_config}
-
 @app.put("/api/ui-config/{element_type}/{element_id}", status_code=status.HTTP_200_OK)
 async def update_ui_element(element_type: str, element_id: str, element: dict):
     if element_type not in ui_config:
@@ -148,88 +151,28 @@ async def update_ui_element(element_type: str, element_id: str, element: dict):
             updated["id"] = element_id
             ui_config[element_type][i] = updated
             action_logs.append(f"Элемент {element_type[:-1]} с id={element_id} обновлён")
-            try:
-                await run_ui_tests()
-            except Exception as e:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ошибка после обновления элемента: {str(e)}")
             return {"detail": f"{element_type[:-1].capitalize()} обновлён", "element": updated}
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Element not found")
 
-async def run_ui_tests():
-    test_logs.append("Запуск UI тестов...")
+@app.post("/api/run-tests")
+async def run_tests():
+    test_logs.clear()
+    test_logs.append(f"Запуск автотестов с HTTP кодом {http_status_code}...")
+    if http_status_code != 200:
+        test_logs.append(f"Ошибка: HTTP код {http_status_code} не равен 200!")
+        return {"detail": "Тесты завершены с ошибкой", "http_status": http_status_code}
     for etype in ["buttons", "panels", "comboboxes", "dropdowns"]:
-        elements = ui_config.get(etype, [])
-        if not elements:
-            test_logs.append(f"Ошибка: отсутствуют элементы типа {etype}!")
-            raise Exception(f"Отсутствуют элементы типа {etype}!")
-        for el in elements:
+        if not ui_config.get(etype):
+            test_logs.append(f"Ошибка: отсутствуют элементы типа {etype}")
+            return {"detail": f"Ошибка: отсутствуют элементы типа {etype}"}
+        for el in ui_config[etype]:
             if not el.get("visible", False):
                 test_logs.append(f"Ошибка: элемент {etype[:-1]} {el['id']} не видим")
-                raise Exception(f"Элемент {etype[:-1]} {el['id']} не видим")
-            else:
-                test_logs.append(f"UI тест {etype[:-1]} {el['id']}: видим - OK")
-    test_logs.append("UI тесты завершены.")
+                return {"detail": f"Ошибка: элемент {etype[:-1]} {el['id']} не видим"}
+            test_logs.append(f"UI тест {etype[:-1]} {el['id']}: видим - OK")
+    test_logs.append("Все тесты пройдены успешно.")
+    return {"detail": "Тесты успешно завершены"}
 
-async def run_reset_test():
-    test_logs.append("Тест обнуления конфигурации UI...")
-    global ui_config
-    ui_config = {k: [dict(item) for item in v] for k, v in DEFAULT_UI_CONFIG.items()}
-    action_logs.append("Конфигурация UI обнулена (тест)")
-    total = sum(len(ui_config[key]) for key in ui_config)
-    if total == 0:
-        test_logs.append("Ошибка: конфигурация пуста после обнуления")
-        raise Exception("Конфигурация пуста после обнуления")
-    test_logs.append("Тест обнуления конфигурации пройден.")
-
-async def run_update_test():
-    test_logs.append("Тест изменения элемента...")
-    btn = {"id": "btn_update", "label": "Старая кнопка", "visible": True}
-    ui_config["buttons"].append(btn)
-    updated_btn = {"label": "Новая кнопка", "visible": False}
-    for i, el in enumerate(ui_config["buttons"]):
-        if el["id"] == "btn_update":
-            updated = updated_btn.copy()
-            updated["id"] = "btn_update"
-            ui_config["buttons"][i] = updated
-            break
-    el = next((e for e in ui_config["buttons"] if e["id"] == "btn_update"), None)
-    if not el or el["label"] != "Новая кнопка" or el["visible"] != False:
-        test_logs.append("Ошибка: элемент не изменён корректно")
-        raise Exception("Элемент не изменён корректно")
-    test_logs.append("Тест изменения элемента пройден.")
-
-async def run_api_tests():
-    test_logs.append("Запуск API тестов...")
-    test_logs.append("Тест API GET /api/ui-config: ожидается 200")
-    test_logs.append("Ответ 200 получен - OK")
-    test_logs.append("Тест добавления кнопки POST /api/ui-config")
-    new_button = {"id": "btn_test", "label": "Тестовая кнопка", "visible": True}
-    ui_config["buttons"].append(new_button)
-    test_logs.append("Кнопка добавлена - OK")
-    ui_config["buttons"] = [b for b in ui_config["buttons"] if b["id"] != "btn_test"]
-    test_logs.append("API тесты завершены.")
-
-@app.post("/api/run-tests")
-async def run_tests(test_type: Optional[str] = "all"):
-    action_logs.append(f"Запуск автотестов типа '{test_type}'")
-    test_logs.clear()
-    if test_type == "ui":
-        async def ui_all():
-            await run_ui_tests()
-            await run_reset_test()
-            await run_update_test()
-        asyncio.create_task(ui_all())
-    elif test_type == "api":
-        asyncio.create_task(run_api_tests())
-    else:
-        async def run_all():
-            await run_ui_tests()
-            await run_reset_test()
-            await run_update_test()
-            await run_api_tests()
-            test_logs.append("Все тесты завершены успешно.")
-        asyncio.create_task(run_all())
-    return {"detail": f"Тесты '{test_type}' запущены"}
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -253,14 +196,12 @@ async def index():
   <h1 class="mb-4">Демонстрация автотестирования</h1>
 
   <div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
-    <button id="resetConfigBtn" class="btn btn-warning">Обнулить конфигурацию UI (PUT)</button>
-    <button id="runTestsBtn" class="btn btn-success">Запустить автотесты</button>
-    <select id="testType" class="form-select w-auto">
-      <option value="all">Все тесты</option>
-      <option value="ui">UI тесты</option>
-      <option value="api">API тесты</option>
-    </select>
-    <a href="/logs" class="btn btn-info ms-auto">Перейти к логам</a>
+    <label for="httpStatus" class="form-label mb-0 me-2">HTTP код ответа:</label>
+    <input type="number" id="httpStatus" class="form-control w-auto" value="200" min="100" max="599" />
+    <button id="updateHttpStatus" class="btn btn-primary">Обновить HTTP код</button>
+    <button id="resetConfigBtn" class="btn btn-warning ms-3">Обнулить конфигурацию UI</button>
+    <button id="runTestsBtn" class="btn btn-success ms-auto">Запустить автотесты</button>
+    <a href="/logs" class="btn btn-info ms-2">Перейти к логам</a>
   </div>
 
   <h2>Добавить новый элемент</h2>
@@ -321,8 +262,6 @@ async def index():
   <h2>Лог автотестов</h2>
   <div id="log"></div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
 function onTypeChange() {
@@ -576,7 +515,7 @@ async function loadConfig() {
 }
 
 async function runTests() {
-  const testType = document.getElementById('testType').value;
+  const testType = document.getElementById('testType') ? document.getElementById('testType').value : 'all';
   const logDiv = document.getElementById('log');
   logDiv.textContent = "Запуск тестов...";
   await fetch(`/api/run-tests?test_type=${testType}`, { method: 'POST' });
@@ -618,6 +557,21 @@ window.addEventListener('DOMContentLoaded', () => {
       loadConfig();
     } else {
       alert('Ошибка при обнулении конфигурации');
+    }
+  });
+
+  document.getElementById('updateHttpStatus').addEventListener('click', async () => {
+    const code = parseInt(document.getElementById('httpStatus').value);
+    if (isNaN(code) || code < 100 || code > 599) {
+      alert('Введите корректный HTTP код (100-599)');
+      return;
+    }
+    const res = await fetch('/api/http-status?code=' + code, { method: 'PUT' });
+    if (res.ok) {
+      alert('HTTP код обновлён');
+    } else {
+      const err = await res.json();
+      alert('Ошибка: ' + (err.detail || JSON.stringify(err)));
     }
   });
 
